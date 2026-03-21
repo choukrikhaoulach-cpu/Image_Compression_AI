@@ -1,126 +1,151 @@
 import streamlit as st
 from PIL import Image
 import os
-from agents.analyse import analyser_image
-from agents.decision import prendre_decision
 import numpy as np
-from skimage.metrics import peak_signal_noise_ratio, structural_similarity
+from skimage.metrics import peak_signal_noise_ratio as compare_psnr
+from skimage.metrics import structural_similarity as compare_ssim
 
-st.title("Compression d'images")
+from agents.orchestrator import Orchestrator
+from agents.analyse import analyser_image  # ✅ IMPORTANT
 
-uploaded_file = st.file_uploader("Choisir une image")
+st.title("🧠 Compression d’images intelligente (IA Multi-Agents)")
+
+uploaded_file = st.file_uploader("📤 Upload une image")
 
 if uploaded_file is not None:
 
+    orch = Orchestrator()
+
     image = Image.open(uploaded_file)
-
-    # -----------------------
-    # Analyse
-    # -----------------------
-    analyse = analyser_image(image)
-    st.write("Analyse automatique :", analyse)
-
-    decision = prendre_decision(analyse)
-    st.write("Décision automatique :", decision)
-
-    format_choice = decision["format"]
-    quality = decision["quality"]
 
     if image.mode in ("RGBA", "P"):
         image = image.convert("RGB")
 
-    os.makedirs("compressed", exist_ok=True)
+    os.makedirs("web_results", exist_ok=True)
 
-    # -----------------------
-    # Sauvegarde originale
-    # -----------------------
-    original_path = os.path.join("compressed", "original_" + uploaded_file.name)
+    original_path = os.path.join("web_results", "original_" + uploaded_file.name)
     image.save(original_path)
 
     # -----------------------
-    # Resize intelligent (pour compression seulement)
+    # REDIMENSIONNEMENT
     # -----------------------
-    image_for_compression = image.copy()
-
-    max_width = 1920
-    if image_for_compression.width > max_width:
-        ratio = max_width / image_for_compression.width
-        new_height = int(image_for_compression.height * ratio)
-        image_for_compression = image_for_compression.resize((max_width, new_height))
-        st.info("Image redimensionnée automatiquement pour optimisation web.")
+    max_width = 1280
+    if image.width > max_width:
+        ratio = max_width / image.width
+        new_height = int(image.height * ratio)
+        image = image.resize((max_width, new_height))
+        st.info("📉 Image redimensionnée pour meilleure compression")
 
     # -----------------------
-    # Sauvegarde compressée
+    # MULTI-COMPRESSION
     # -----------------------
-    compressed_filename = f"compressed_{uploaded_file.name.split('.')[0]}.{format_choice.lower()}"
-    compressed_path = os.path.join("compressed", compressed_filename)
+    def compress_image(img, decision=None):
+        filename = uploaded_file.name.split(".")[0]
+        paths = []
 
-    if format_choice == "JPEG":
-        image_for_compression.save(compressed_path, "JPEG", quality=quality)
+        path1 = os.path.join("web_results", f"{filename}_q85.jpg")
+        img.save(path1, "JPEG", quality=85)
+        paths.append(path1)
 
-    elif format_choice == "PNG":
-        image_for_compression.save(compressed_path, "PNG")
+        path2 = os.path.join("web_results", f"{filename}_q40.jpg")
+        img.save(path2, "JPEG", quality=40, optimize=True)
+        paths.append(path2)
 
-    elif format_choice == "WebP":
-        image_for_compression.save(compressed_path, "WebP", quality=quality)
+        path3 = os.path.join("web_results", f"{filename}.webp")
+        img.save(path3, "WEBP", quality=60)
+        paths.append(path3)
 
-    # -----------------------
-    # Calcul tailles
-    # -----------------------
-    taille_originale = len(uploaded_file.getvalue()) / 1024
-    taille_compressee = os.path.getsize(compressed_path) / 1024
+        path4 = os.path.join("web_results", f"{filename}.png")
+        img.save(path4, "PNG")
+        paths.append(path4)
 
-    # -----------------------
-    # PSNR & SSIM
-    # -----------------------
-    original_np = np.array(Image.open(original_path))
-    compressed_np = np.array(Image.open(compressed_path))
-
-    if original_np.shape == compressed_np.shape:
-        psnr_value = peak_signal_noise_ratio(original_np, compressed_np, data_range=255)
-        ssim_value = structural_similarity(original_np, compressed_np, channel_axis=-1)
-    else:
-        psnr_value = None
-        ssim_value = None
+        best_path = min(paths, key=lambda p: os.path.getsize(p))
+        return best_path
 
     # -----------------------
-    # Décision intelligente
+    # PIPELINE AVEC PROGRESS
     # -----------------------
-    if taille_compressee >= taille_originale:
-        st.warning("⚠️ La compression augmente la taille. Image originale conservée.")
-        final_path = original_path
-    else:
-        final_path = compressed_path
+    progress = st.progress(0)
+    status = st.empty()
 
-    taux = (1 - taille_compressee / taille_originale) * 100
+    # 1. ANALYSE
+    status.text("🔍 Analyse de l'image...")
+    progress.progress(10)
+    features = analyser_image(image)
+
+    # 2. DECISION IA
+    status.text("🤖 Prise de décision IA...")
+    progress.progress(40)
+    decision = orch.llm.decide(features)
+
+    # 3. COMPRESSION
+    status.text("🗜️ Compression en cours...")
+    progress.progress(70)
+    final_path = compress_image(image, decision)
+
+    # 4. FIN
+    progress.progress(100)
+    status.text("✅ Terminé !")
 
     # -----------------------
-    # Affichage
+    # CALCUL METRICS
     # -----------------------
-    st.subheader("Résultats")
+    def calc_metrics(orig_path, comp_path):
+        orig_img = Image.open(orig_path).convert("RGB")
+        comp_img = Image.open(comp_path).convert("RGB")
+
+        if orig_img.size != comp_img.size:
+            comp_img = comp_img.resize(orig_img.size)
+
+        orig_np = np.array(orig_img)
+        comp_np = np.array(comp_img)
+
+        psnr = compare_psnr(orig_np, comp_np)
+        ssim = compare_ssim(orig_np, comp_np, channel_axis=-1)
+        mse = np.mean((orig_np - comp_np) ** 2)
+
+        return {
+            "PSNR": round(psnr, 2),
+            "SSIM": round(ssim, 4),
+            "MSE": round(mse, 2),
+            "original_size_kb": round(os.path.getsize(orig_path) / 1024, 2),
+            "compressed_size_kb": round(os.path.getsize(comp_path) / 1024, 2),
+            "status": "success"
+        }
+
+    metrics = calc_metrics(original_path, final_path)
+
+    # -----------------------
+    # AFFICHAGE
+    # -----------------------
+    st.subheader("📊 Analyse de l’image")
+    st.json(features)
+
+    st.subheader("🤖 Décision IA")
+    st.json(decision)
+
+    st.subheader("📉 Résultats")
 
     st.image(
         [original_path, final_path],
-        caption=["Originale", "Résultat final"]
+        caption=["Originale", "Optimisée"]
     )
 
-    st.write(f"Taille originale : {taille_originale:.2f} KB")
-    st.write(f"Taille compressée : {taille_compressee:.2f} KB")
-    st.write(f"Taux de compression : {taux:.2f} %")
-
-    if psnr_value is not None:
-        st.write(f"PSNR : {psnr_value:.2f} dB")
-        st.write(f"SSIM : {ssim_value:.4f}")
-    else:
-        st.write("PSNR / SSIM non calculables (dimensions différentes)")
+    if metrics["status"] == "success":
+        st.write(f"📏 PSNR : {metrics['PSNR']} dB")
+        st.write(f"📊 SSIM : {metrics['SSIM']}")
+        st.write(f"📉 MSE : {metrics['MSE']}")
+        st.write(f"📦 Taille originale : {metrics['original_size_kb']} KB")
+        st.write(f"📦 Taille compressée : {metrics['compressed_size_kb']} KB")
 
     # -----------------------
-    # Bouton téléchargement
+    # DOWNLOAD
     # -----------------------
-    with open(final_path, "rb") as file:
-        st.download_button(
-            label="Télécharger l'image optimisée",
-            data=file,
-            file_name=os.path.basename(final_path),
-            mime="image/jpeg"
-        )
+    if os.path.exists(final_path):
+        with open(final_path, "rb") as file:
+            st.download_button(
+                label="⬇️ Télécharger l’image optimisée",
+                data=file,
+                file_name=os.path.basename(final_path),
+                mime="image/jpeg"
+            )

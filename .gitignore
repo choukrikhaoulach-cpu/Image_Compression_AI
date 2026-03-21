@@ -1,0 +1,7 @@
+venv/
+__pycache__/
+.env
+*.pyc
+web_results/
+compressed/
+results/
