@@ -134,5 +134,4 @@ Techniques de compression d’images et mesure de qualité PSNR/SSIM.
 
 -Auteur
 
-Khaoula Choukri – Étudiante en Informatique, FST Mohammedia, Maroc.
 GitHub : KHAOULA_DEV
