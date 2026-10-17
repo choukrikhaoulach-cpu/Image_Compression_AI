@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.Python
+venv/
+.venv/
+env/
+ENV/
+*.egg-info/
+.pytest_cache/
+
+# Environment (SECRETS)
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Resultats (images compressees, rapports generes)
+web_results/
+compressed/
+results/
+global_report.json
+
+# Backups
+*.backup
+*.bak
